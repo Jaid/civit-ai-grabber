@@ -1,0 +1,46 @@
+{
+  "version": "1.0.0",
+  "type": "module",
+  "name": "civit-ai-grabber",
+  "description": "Takes tiny input and returns a Webpack config in the way I personally like.",
+  "keywords": [
+    "bundler",
+    "compiler",
+    "config",
+    "options",
+    "preset",
+    "settings",
+    "template",
+    "webpack",
+    "webpack-config",
+    "webpack-preset"
+  ],
+  "author": "Jaid <jaid.jsx@gmail.com> (https://github.com/Jaid)",
+  "homepage": "https://github.com/Jaid/webpack-config-factory",
+  "funding": "https://github.com/sponsors/jaid",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaid/webpack-config-factory"
+  },
+  "dependencies": {
+    "execa": "^8.0.1",
+    "fs-extra": "^11.1.1",
+    "got": "^13.0.0",
+    "lodash-es": "^4.17.21",
+    "p-retry": "^6.1.0",
+    "pretty-bytes": "^6.1.1",
+    "read-file-yaml": "^2.0.0",
+    "super-regex": "^0.2.0",
+    "yaml": "^2.3.2",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "eslint-config-jaid": "^8.15.3",
+    "globby": "^13.2.2",
+    "tsconfig-jaid-node": "^6.1.1"
+  },
+  "scripts": {
+    "start": "node --loader tsx --test test/index.ts"
+  },
+  "bin": "./src/cli.ts"
+}
