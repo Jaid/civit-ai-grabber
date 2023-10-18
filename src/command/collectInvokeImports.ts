@@ -4,7 +4,7 @@ import {globby} from 'globby'
 import * as lodash from 'lodash-es'
 import readFileYaml from 'read-file-yaml'
 
-import {toYaml, toYamlFile} from '~/lib/toYaml.js'
+import {toYamlFile} from '~/lib/toYaml.js'
 
 type InvokeYaml = Record<string, InvokeImport>
 type InvokeImport = {

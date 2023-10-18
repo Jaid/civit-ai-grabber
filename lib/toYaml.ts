@@ -1,7 +1,7 @@
 import fs from 'fs-extra'
 import yaml from 'yaml'
 
-export const toYaml = input => yaml.stringify(input, undefined, {
+export const toYaml = (input: unknown) => yaml.stringify(input, undefined, {
   lineWidth: 0,
   minContentWidth: 0,
   nullStr: `~`,

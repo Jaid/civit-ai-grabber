@@ -3,16 +3,15 @@ import type {ArgumentsCamelCase, Argv, CommandBuilder} from 'yargs'
 import path from 'node:path'
 import {pipeline} from 'node:stream/promises'
 
-import {execa} from 'execa'
 import fs from 'fs-extra'
-import got, {StreamOptions} from 'got'
+import got from 'got'
 import * as lodash from 'lodash-es'
 import pRetry from 'p-retry'
 import prettyBytes from 'pretty-bytes'
 import readFileYaml from 'read-file-yaml'
-import {firstMatch} from 'super-regex'
 
 import {cleanString} from '~/lib/cleanString.js'
+import {getIdFromInput} from '~/lib/getIdFromInput.js'
 import {toYamlFile} from '~/lib/toYaml.js'
 
 const apiGot = got.extend({
@@ -108,18 +107,8 @@ const prependLoraTag = (name: string, model: CivitModel) => {
   }
   return `[${lodash.capitalize(tagFromModel)}] ${name}`
 }
-const extractId = (input: string) => {
-  const idMatch = firstMatch(/\/models\/(?<id>.+?)($|\/)/, input)
-  if (!idMatch) {
-    throw new Error(`Could not find model ID in input “${input}”`)
-  }
-  return Number(idMatch.namedGroups.id)
-}
 const main = async (args: Args) => {
-  if (!args.input) {
-    throw new Error(`Missing input`)
-  }
-  const id = Number(args.input) || extractId(args.input)
+  const id = getIdFromInput(args.input)
   const modelResponse = await apiGot(`models/${id}`, {
     responseType: `json`,
   })
@@ -141,6 +130,9 @@ const main = async (args: Args) => {
     modelTypeToFolderMap[model.type.toLowerCase()] ?? `etc`,
     nameCleaned,
   ]
+  if (args.nsfw) {
+    nameCleaned = `NSFW ${nameCleaned}`
+  }
   const outputFolder = path.join(...outputFolderSegments)
   console.log(`Output folder: ${path.resolve(outputFolder)}`)
   const jsonFile = path.join(outputFolder, `model.json`)
@@ -326,7 +318,7 @@ const main = async (args: Args) => {
   }
 }
 export const command = `grab <input>`
-export const description = "Download and update Civit content"
+export const description = `Download and update Civit content`
 export const builder = (argv: Argv) => {
   return argv.options({
     appendAuthorName: {
@@ -342,6 +334,7 @@ export const builder = (argv: Argv) => {
     input: {
       string: true,
       description: "Either Civit model URL or local path to a yaml array with {name, url} objects",
+      required: true,
     },
     outputRootFolder: {
       default: `.`,
@@ -355,6 +348,11 @@ export const builder = (argv: Argv) => {
     name: {
       string: true,
       description: "Override the name of the model",
+    },
+    nsfw: {
+      boolean: true,
+      default: false,
+      description: "Mark as NSFW",
     }
   })
 }
@@ -367,6 +365,7 @@ export const handler = async (args: Args) => {
         ...args,
         input: item.url,
         name: item.name,
+        nsfw: item.nsfw,
       })
     }
   } else {
