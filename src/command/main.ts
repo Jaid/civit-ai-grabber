@@ -104,12 +104,19 @@ const prependLoraTag = (name: string, model: CivitModel) => {
   }
   return `[${lodash.capitalize(tagFromModel)}] ${name}`
 }
-export default async (args: Args) => {
-  const idMatch = firstMatch(/\/models\/(?<id>.+?)($|\/)/, <string> <unknown> args.input)
+const extractId = (input: string) => {
+  const idMatch = firstMatch(/\/models\/(?<id>.+?)($|\/)/, input)
   if (!idMatch) {
-    throw new Error(`Could not find model ID in input “${args.input}”`)
+    throw new Error(`Could not find model ID in input “${input}”`)
   }
-  const modelResponse = await apiGot(`models/${idMatch.namedGroups.id}`, {
+  return Number(idMatch.namedGroups.id)
+}
+export default async (args: Args) => {
+  if (!args.input) {
+    throw new Error(`Missing input`)
+  }
+  const id = Number(args.input) || extractId(args.input)
+  const modelResponse = await apiGot(`models/${id}`, {
     responseType: `json`,
   })
   if (modelResponse.statusCode !== 200) {
@@ -137,7 +144,7 @@ export default async (args: Args) => {
   await fs.outputJson(jsonFile, model)
   console.log(`- save ${jsonFile}`)
   const urlFileExists = await fs.pathExists(urlFile)
-  const modelUrl = `https://civitai.com/models/${idMatch.namedGroups.id}`
+  const modelUrl = `https://civitai.com/models/${id}`
   if (!urlFileExists) {
     await fs.outputFile(urlFile, `[InternetShortcut]\nURL=${modelUrl}`)
     console.log(`- save ${urlFile}`)
@@ -269,7 +276,7 @@ export default async (args: Args) => {
       },
       VAE: {
         folder: `vae`,
-        type: "checkpoint",
+        type: `checkpoint`,
       },
     }
     const formatInfo = formatMap[model.type]
