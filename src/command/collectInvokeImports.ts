@@ -1,4 +1,4 @@
-import type {CollectInvokeImportsArgs as Args} from '../cli.js'
+import type {ArgumentsCamelCase, Argv, CommandBuilder} from 'yargs'
 
 import {globby} from 'globby'
 import * as lodash from 'lodash-es'
@@ -16,7 +16,26 @@ type InvokeImport = {
   width?: number
 }
 
-export const collectInvokeImports = async (args: Args) => {
+// Don’t fully understand this, taken from here: https://github.com/zwade/hypatia/blob/a4f2f5785c146b4cb4ebff44da609a6500c53887/backend/src/start.ts#L47
+export type Args = (typeof builder) extends CommandBuilder<any, infer U> ? ArgumentsCamelCase<U> : never
+
+export const command = `collectInvokeInputs <rootFolder> <targetFile>`
+export const description = `Copy import definitions from local Civit content folder to Invoke`
+
+export const builder = (argv: Argv) => {
+  return argv.options({
+    rootFolder: {
+      default: `.`,
+      type: `string`,
+    },
+    targetFile: {
+      required: true,
+      string: true,
+    },
+  })
+}
+
+export const handler = async (args: Args) => {
   const readInvokeYaml = async () => {
     const yamlObject = <InvokeYaml> await readFileYaml.default(args.targetFile)
     return yamlObject

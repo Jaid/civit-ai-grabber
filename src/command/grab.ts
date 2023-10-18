@@ -1,4 +1,4 @@
-import type {Args} from '~/src/cli.js'
+import type {ArgumentsCamelCase, Argv, CommandBuilder} from 'yargs'
 
 import path from 'node:path'
 import {pipeline} from 'node:stream/promises'
@@ -9,6 +9,7 @@ import got, {StreamOptions} from 'got'
 import * as lodash from 'lodash-es'
 import pRetry from 'p-retry'
 import prettyBytes from 'pretty-bytes'
+import readFileYaml from 'read-file-yaml'
 import {firstMatch} from 'super-regex'
 
 import {cleanString} from '~/lib/cleanString.js'
@@ -18,6 +19,9 @@ const apiGot = got.extend({
   prefixUrl: `https://civitai.com/api/v1`,
   responseType: `json`,
 })
+
+// Don’t fully understand this, taken from here: https://github.com/zwade/hypatia/blob/a4f2f5785c146b4cb4ebff44da609a6500c53887/backend/src/start.ts#L47
+export type Args = (typeof builder) extends CommandBuilder<any, infer U> ? ArgumentsCamelCase<U> : never
 
 type CivitModel = {
   creator: ModelCreator
@@ -111,7 +115,7 @@ const extractId = (input: string) => {
   }
   return Number(idMatch.namedGroups.id)
 }
-export default async (args: Args) => {
+const main = async (args: Args) => {
   if (!args.input) {
     throw new Error(`Missing input`)
   }
@@ -319,5 +323,64 @@ export default async (args: Args) => {
       }
     }
     await toYamlFile({[importId]: invokeImport}, invokeImportFile)
+  }
+}
+export const command = `grab <input>`
+export const description = "Download and update Civit content"
+export const builder = (argv: Argv) => {
+  return argv.options({
+    appendAuthorName: {
+      boolean: true,
+      default: true,
+      description: "Append author name to the name of the model",
+    },
+    forceInvokeImport: {
+      boolean: true,
+      description: "Always output invokeImport.yml, even if heuristics tell it’s not needed",
+      default: false,
+    },
+    input: {
+      string: true,
+      description: "Either Civit model URL or local path to a yaml array with {name, url} objects",
+    },
+    outputRootFolder: {
+      default: `.`,
+      type: `string`,
+    },
+    prependLoraType: {
+      boolean: true,
+      default: true,
+      description: "Prepend Lora type to the name (character/concept/etc) of the model",
+    },
+    name: {
+      string: true,
+      description: "Override the name of the model",
+    }
+  })
+}
+export const handler = async (args: Args) => {
+  const jobs: Args[] = []
+  if (args.input!.endsWith(`.yml`)) {
+    const array = await readFileYaml.default(args.input!)
+    for (const item of array) {
+      jobs.push({
+        ...args,
+        input: item.url,
+        name: item.name,
+      })
+    }
+  } else {
+    jobs.push(args)
+  }
+  for (const [index, job] of jobs.entries()) {
+    const time = (new Date).toLocaleTimeString()
+    console.log(`[${time}] Job ${index + 1}/${jobs.length}: ${job.input}`)
+    try {
+      await main(job)
+    } catch (error) {
+      console.log(`Job failed`)
+      console.dir(job, {depth: null})
+      console.error(error)
+    }
   }
 }

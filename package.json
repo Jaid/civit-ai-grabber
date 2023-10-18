@@ -40,7 +40,8 @@
     "tsconfig-jaid-node": "^6.1.1"
   },
   "scripts": {
-    "start": "node --loader tsx --test test/index.ts"
+    "start": "node --import tsx src/cli.ts",
+    "test": "node --import tsx --test test/index.ts"
   },
   "bin": "./src/cli.ts"
 }
