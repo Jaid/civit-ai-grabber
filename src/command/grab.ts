@@ -59,7 +59,7 @@ type CivitFile = {
   }
   name: string
   sizeKB: number
-  type: 'Config' | 'Model'
+  type: 'Config' | 'Model' | 'VAE'
 }
 type ModelCreator = {
   image: string
@@ -168,7 +168,7 @@ const main = async (args: Args) => {
   const getFileDisplayName = (civitFile: CivitFile, allowSpaces = false) => {
     try {
       if (civitFile.type === `Config`) {
-        return `config`
+        return `Config`
       }
       const segments: string[] = []
       segments.push(nameCleaned)
@@ -181,6 +181,12 @@ const main = async (args: Args) => {
       }
       if (civitFile.metadata.size && civitFile.metadata.size !== `full`) {
         segments.push(civitFile.metadata.size)
+      }
+      if (civitFile.type === `VAE`) {
+        segments.push(`VAE`)
+      }
+      if (model.type === `TextualInversion`) {
+        return segments.join(`_`).toLowerCase().replaceAll(` `, `_`).replaceAll(/[^\d\-_a-z]/g, ``).replaceAll(/_+/g, `_`)
       }
       if (allowSpaces) {
         return segments.join(` `)
@@ -288,7 +294,8 @@ const main = async (args: Args) => {
     const mainFileStat = await fs.stat(path.join(versionFolder, getFileName(mainFile)))
     console.log(`- save invokeImport.yml`)
     const importDisplayName = getFileDisplayName(mainFile, true)
-    const importId = [`sdxl`, formatInfo.folder, importDisplayName.replaceAll(`/`, `_`)].join(`/`)
+    const importIdFolder = [`sdxl`, formatInfo.folder].join(`/`)
+    const importId = [importIdFolder, importDisplayName].join(`/`)
     const invokeImport: Record<string, number | string | null> = {
       format: formatInfo.type ?? null,
       path: path.resolve(versionFolder, getFileName(mainFile)),
@@ -314,7 +321,22 @@ const main = async (args: Args) => {
         invokeImport.config = `configs/stable-diffusion/sd_xl_base.yaml`
       }
     }
-    await toYamlFile({[importId]: invokeImport}, invokeImportFile)
+    const invokeImportYaml: Record<string, unknown> = {
+      [importId]: invokeImport,
+    }
+    const vaeFile = chosenFiles.find(file => file.type === `VAE`)
+    if (vaeFile) {
+      const vaeImportIdFolder = [`sdxl`, formatMap.VAE?.folder].join(`/`)
+      const vaeImportDisplayName = getFileDisplayName(vaeFile, true)
+      const vaeImportId = [vaeImportIdFolder, vaeImportDisplayName].join(`/`)
+      const vaeImport = {
+        description: `${invokeImport.description} (VAE)`,
+        format: formatMap.VAE?.type,
+        path: path.resolve(versionFolder, getFileName(vaeFile)),
+      }
+      invokeImportYaml[vaeImportId] = vaeImport
+    }
+    await toYamlFile(invokeImportYaml, invokeImportFile)
   }
 }
 export const command = `grab <input>`
@@ -336,6 +358,11 @@ export const builder = (argv: Argv) => {
       description: "Either Civit model URL or local path to a yaml array with {name, url} objects",
       required: true,
     },
+    nsfw: {
+      boolean: true,
+      default: false,
+      description: "Mark as NSFW",
+    },
     outputRootFolder: {
       default: `.`,
       type: `string`,
@@ -348,11 +375,6 @@ export const builder = (argv: Argv) => {
     name: {
       string: true,
       description: "Override the name of the model",
-    },
-    nsfw: {
-      boolean: true,
-      default: false,
-      description: "Mark as NSFW",
     }
   })
 }
@@ -364,8 +386,8 @@ export const handler = async (args: Args) => {
       jobs.push({
         ...args,
         input: item.url,
-        name: item.name,
         nsfw: item.nsfw,
+        name: item.name,
       })
     }
   } else {
