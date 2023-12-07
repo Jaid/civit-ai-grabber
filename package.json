@@ -23,6 +23,7 @@
     "url": "https://github.com/jaid/webpack-config-factory"
   },
   "dependencies": {
+    "chalk": "^5.3.0",
     "execa": "^8.0.1",
     "fs-extra": "^11.1.1",
     "got": "^13.0.0",
@@ -38,11 +39,14 @@
   "devDependencies": {
     "eslint-config-jaid": "^8.16.0",
     "globby": "^13.2.2",
-    "tsconfig-jaid-node": "^6.1.1"
+    "tsconfig-jaid-node": "^6.1.1",
+    "type-fest": "^4.6.0"
   },
   "scripts": {
     "start": "node --import tsx src/cli.ts",
-    "test": "node --import tsx --test test/index.ts"
+    "test": "node --import tsx --test test/index.ts",
+    "openInvokeConfig": "code $INVOKEAI_ROOT/invokeai.yaml",
+    "openInvokeModelsConfig": "code $INVOKEAI_ROOT/configs/models.yaml"
   },
   "bin": "./src/cli.ts"
 }

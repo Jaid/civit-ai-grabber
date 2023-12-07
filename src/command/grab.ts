@@ -3,6 +3,7 @@ import type {ArgumentsCamelCase, Argv, CommandBuilder} from 'yargs'
 import path from 'node:path'
 import {pipeline} from 'node:stream/promises'
 
+import chalk from 'chalk'
 import fs from 'fs-extra'
 import got from 'got'
 import * as lodash from 'lodash-es'
@@ -11,10 +12,15 @@ import prettyBytes from 'pretty-bytes'
 import readFileYaml from 'read-file-yaml'
 
 import {cleanString} from '~/lib/cleanString.js'
-import {getIdFromInput} from '~/lib/getIdFromInput.js'
+import {getIdFromInput as parseInput} from '~/lib/getIdFromInput.js'
 import {toYamlFile} from '~/lib/toYaml.js'
 
-const apiGot = got.extend({
+const authGot = got.extend({
+  searchParams: {
+    token: `f63ebf63e7d01f53291696c51e49215e`,
+  },
+})
+const apiGot = authGot.extend({
   prefixUrl: `https://civitai.com/api/v1`,
   responseType: `json`,
 })
@@ -108,15 +114,33 @@ const prependLoraTag = (name: string, model: CivitModel) => {
   return `[${lodash.capitalize(tagFromModel)}] ${name}`
 }
 const main = async (args: Args) => {
-  const id = getIdFromInput(args.input)
-  const modelResponse = await apiGot(`models/${id}`, {
+  const input = parseInput(args.input)
+  if (args.versionId) {
+    input.versionId = args.versionId
+  }
+  const modelResponse = await apiGot(`models/${input.id}`, {
     responseType: `json`,
   })
   if (modelResponse.statusCode !== 200) {
     throw new Error(`Could not fetch model: ${modelResponse.body}`)
   }
   const model = <CivitModel> modelResponse.body
-  const latestVersion = model.modelVersions[0]
+  let selectedVersion
+  if (input.versionId) {
+    selectedVersion = model.modelVersions.find(version => version.id === input.versionId)
+    if (!selectedVersion) {
+      throw new Error(`Could not find version ${input.versionId}`)
+    }
+  } else {
+    selectedVersion = model.modelVersions.find(version => version.baseModel === `SDXL 1.0`)
+    if (!selectedVersion) {
+      throw new Error(`Could not find SDXL 1.0 version`)
+    }
+    const latestVersion = model.modelVersions[0]
+    if (selectedVersion.id !== latestVersion.id) {
+      console.log(`- latest version is ${latestVersion.name} (${latestVersion.id}), but SDXL 1.0 version is ${selectedVersion.name} (${selectedVersion.id})`)
+    }
+  }
   let nameCleaned = cleanString(args.name ?? model.name)
   if (args.appendAuthorName) {
     nameCleaned += ` (${model.creator.username})`
@@ -126,26 +150,28 @@ const main = async (args: Args) => {
   }
   const outputFolderSegments: string[] = [
     args.outputRootFolder,
-    modelGenerationToFolderMap[latestVersion.baseModel.toLowerCase()] ?? `etc`,
+    modelGenerationToFolderMap[selectedVersion.baseModel.toLowerCase()] ?? `etc`,
     modelTypeToFolderMap[model.type.toLowerCase()] ?? `etc`,
     nameCleaned,
   ]
   if (args.nsfw) {
     nameCleaned = `NSFW ${nameCleaned}`
   }
+  const versionNameCleaned = cleanString(selectedVersion.name)
+  console.log(chalk.blue(`Model: ${nameCleaned} (${model.id})`))
+  console.log(chalk.blue(`Version: ${versionNameCleaned} (${selectedVersion.id})`))
   const outputFolder = path.join(...outputFolderSegments)
-  console.log(`Output folder: ${path.resolve(outputFolder)}`)
+  // console.log(`Output folder: ${path.resolve(outputFolder)}`)
   const jsonFile = path.join(outputFolder, `model.json`)
   const urlFile = path.join(outputFolder, `${nameCleaned}.url`)
   await fs.outputJson(jsonFile, model)
-  console.log(`- save ${jsonFile}`)
+  console.log(chalk.yellowBright(`- save ${jsonFile}`))
   const urlFileExists = await fs.pathExists(urlFile)
-  const modelUrl = `https://civitai.com/models/${id}`
+  const modelUrl = `https://civitai.com/models/${input.id}`
   if (!urlFileExists) {
     await fs.outputFile(urlFile, `[InternetShortcut]\nURL=${modelUrl}`)
-    console.log(`- save ${urlFile}`)
+    console.log(chalk.yellowBright(`- save ${urlFile}`))
   }
-  const versionNameCleaned = cleanString(latestVersion.name)
   const versionFolder = path.join(outputFolder, versionNameCleaned)
   await fs.ensureDir(versionFolder)
   const calculateCheckpointWorth = (civitFile: CivitFile) => {
@@ -199,6 +225,9 @@ const main = async (args: Args) => {
       throw error
     }
   }
+  const usedTagsRegex = /[^!](?<tag>[^\s!&()]+)/g
+  const query = `a b`
+  const match = query.match(usedTagsRegex)
   const getFileName = (civitFile: CivitFile) => {
     if (civitFile.type === `Config`) {
       return `config.yml`
@@ -224,9 +253,9 @@ const main = async (args: Args) => {
     const badIds = badFiles.map(file => file.id)
     return badIds
   }
-  const skippedFiles = selectSkippedFiles(latestVersion)
+  const skippedFiles = selectSkippedFiles(selectedVersion)
   const chosenFiles: CivitFile[] = []
-  for (const civitFile of latestVersion.files) {
+  for (const civitFile of selectedVersion.files) {
     const fileName = getFileName(civitFile)
     if (skippedFiles.includes(civitFile.id)) {
       console.log(`- skip ${fileName} (not needed)`)
@@ -244,8 +273,8 @@ const main = async (args: Args) => {
       continue
     }
     const download = async () => {
-      console.log(`- down ${fileName} from ${civitFile.downloadUrl} (${Math.floor(civitFile.sizeKB / 1000)} mb)`)
-      return pipeline(got.stream(civitFile.downloadUrl), fs.createWriteStream(file))
+      console.log(chalk.yellow(`- down ${fileName} from ${civitFile.downloadUrl} (${Math.floor(civitFile.sizeKB / 1000)} mb)`))
+      return pipeline(authGot.stream(civitFile.downloadUrl), fs.createWriteStream(file))
     }
     await pRetry(download, {
       onFailedAttempt: async error => {
@@ -292,7 +321,7 @@ const main = async (args: Args) => {
       return
     }
     const mainFileStat = await fs.stat(path.join(versionFolder, getFileName(mainFile)))
-    console.log(`- save invokeImport.yml`)
+    console.log(chalk.yellowBright(`- save invokeImport.yml`))
     const importDisplayName = getFileDisplayName(mainFile, true)
     const importIdFolder = [`sdxl`, formatInfo.folder].join(`/`)
     const importId = [importIdFolder, importDisplayName].join(`/`)
@@ -301,8 +330,8 @@ const main = async (args: Args) => {
       path: path.resolve(versionFolder, getFileName(mainFile)),
     }
     const invokeImportDescription: string[] = []
-    if (!lodash.isEmpty(latestVersion.trainedWords)) {
-      invokeImportDescription.push(`[ ${latestVersion.trainedWords.map(word => word.trim()).join(` | `)} ]`)
+    if (!lodash.isEmpty(selectedVersion.trainedWords)) {
+      invokeImportDescription.push(`[ ${selectedVersion.trainedWords.map(word => word.trim()).join(` | `)} ]`)
     }
     if (!lodash.isEmpty(model.tags)) {
       invokeImportDescription.push(model.tags.map(tag => tag.trim()).join(`, `))
@@ -346,22 +375,22 @@ export const builder = (argv: Argv) => {
     appendAuthorName: {
       boolean: true,
       default: true,
-      description: "Append author name to the name of the model",
+      description: `Append author name to the name of the model`,
     },
     forceInvokeImport: {
       boolean: true,
-      description: "Always output invokeImport.yml, even if heuristics tell it’s not needed",
+      description: `Always output invokeImport.yml, even if heuristics tell it’s not needed`,
       default: false,
     },
     input: {
       string: true,
-      description: "Either Civit model URL or local path to a yaml array with {name, url} objects",
+      description: `Either Civit model URL or local path to a yaml array with {name, url} objects`,
       required: true,
     },
     nsfw: {
       boolean: true,
       default: false,
-      description: "Mark as NSFW",
+      description: `Mark as NSFW`,
     },
     outputRootFolder: {
       default: `.`,
@@ -370,12 +399,16 @@ export const builder = (argv: Argv) => {
     prependLoraType: {
       boolean: true,
       default: true,
-      description: "Prepend Lora type to the name (character/concept/etc) of the model",
+      description: `Prepend Lora type to the name (character/concept/etc) of the model`,
+    },
+    versionId: {
+      number: true,
+      description: `Force the version of the model instead of using the latest`,
     },
     name: {
       string: true,
-      description: "Override the name of the model",
-    }
+      description: `Override the name of the model`,
+    },
   })
 }
 export const handler = async (args: Args) => {
@@ -387,6 +420,7 @@ export const handler = async (args: Args) => {
         ...args,
         input: item.url,
         nsfw: item.nsfw,
+        versionId: item.version,
         name: item.name,
       })
     }
@@ -395,7 +429,7 @@ export const handler = async (args: Args) => {
   }
   for (const [index, job] of jobs.entries()) {
     const time = (new Date).toLocaleTimeString()
-    console.log(`[${time}] Job ${index + 1}/${jobs.length}: ${job.input}`)
+    console.log(chalk.blue(`[${time}] Job ${index + 1}/${jobs.length}: ${job.input}`))
     try {
       await main(job)
     } catch (error) {
